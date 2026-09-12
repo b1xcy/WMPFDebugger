@@ -22,6 +22,161 @@ type HookConfig = {
 
 const debugMessageEmitter = new DebugMessageEmitter();
 
+type CdpTargetInfo = {
+    targetId?: string;
+    type?: string;
+    title?: string;
+    url?: string;
+};
+
+let miniappConnected = false;
+let h5Session: { targetId: string; sessionId: string } | null = null;
+const pendingCdp = new Map<number, (msg: Record<string, unknown>) => void>();
+let cdpReqId = 900000;
+let inspectWss: WebSocketServer | null = null;
+
+const parseCdp = (message: unknown): Record<string, unknown> | null => {
+    if (typeof message === "object" && message !== null) {
+        return message as Record<string, unknown>;
+    }
+    if (typeof message !== "string") {
+        return null;
+    }
+    try {
+        return JSON.parse(message) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+};
+
+const sendCdp = (
+    method: string,
+    params?: Record<string, unknown>,
+): Promise<Record<string, unknown>> =>
+    new Promise((resolve, reject) => {
+        if (!miniappConnected) {
+            reject(new Error("miniapp debug session not connected"));
+            return;
+        }
+        const id = ++cdpReqId;
+        const timer = setTimeout(() => {
+            pendingCdp.delete(id);
+            reject(new Error(`CDP timeout: ${method}`));
+        }, 4000);
+        pendingCdp.set(id, (msg) => {
+            clearTimeout(timer);
+            resolve(msg);
+        });
+        debugMessageEmitter.emit(
+            "proxymessage",
+            JSON.stringify({ id, method, params: params ?? {} }),
+        );
+    });
+
+const scoreH5Target = (target: CdpTargetInfo, urls: string[]): number => {
+    const url = target.url || "";
+    const type = (target.type || "page").toLowerCase();
+    if (type !== "page" && type !== "webview") {
+        return -100;
+    }
+    if (!url) {
+        return -100;
+    }
+    const value = url.toLowerCase();
+    if (
+        value.includes("servicewechat.com") ||
+        value.includes("appindex") ||
+        value.startsWith("chrome://") ||
+        value.startsWith("devtools://") ||
+        value.startsWith("about:") ||
+        value.startsWith("weixin://") ||
+        value.includes("wxa.wxs.qq.com/tmpl") ||
+        value.includes("/preload-")
+    ) {
+        return -50;
+    }
+    if (value.includes("mp.weixin.qq.com/s/index.html")) {
+        return -10;
+    }
+    let score = 10;
+    if (value.startsWith("https://") || value.startsWith("http://")) {
+        score += 40;
+    }
+    if (/mp\.weixin\.qq\.com\/s\/[A-Za-z0-9_-]+/.test(url)) {
+        score += 50;
+    }
+    const normalize = (item: string) => item.split("#")[0].replace(/\/$/, "");
+    for (const wanted of urls) {
+        if (!wanted) {
+            continue;
+        }
+        if (normalize(url) === normalize(wanted)) {
+            score += 100;
+        } else if (url.includes(wanted) || wanted.includes(url.split("?")[0])) {
+            score += 60;
+        }
+    }
+    return score;
+};
+
+const matchH5Target = (
+    targets: CdpTargetInfo[],
+    urls: string[],
+): CdpTargetInfo | null => {
+    let best: CdpTargetInfo | null = null;
+    let bestScore = 0;
+    for (const target of targets) {
+        const score = scoreH5Target(target, urls);
+        if (score > bestScore) {
+            best = target;
+            bestScore = score;
+        }
+    }
+    return best;
+};
+
+const attachH5Target = async (urls: string[], logger: Logger) => {
+    const response = await sendCdp("Target.getTargets");
+    if (response.error) {
+        throw new Error(JSON.stringify(response.error));
+    }
+    const result = (response.result || {}) as { targetInfos?: CdpTargetInfo[] };
+    const targets = result.targetInfos || [];
+    logger.info(
+        `[inspect] ${targets.length} targets: ${targets
+            .map((target) => `${target.type || "?"}:${target.url || target.title || ""}`)
+            .join(" | ")}`,
+    );
+    const target = matchH5Target(targets, urls);
+    if (!target || !target.targetId) {
+        throw new Error(
+            "no H5 page target found; keep the miniapp open and open the web page first",
+        );
+    }
+    logger.info(`[inspect] attaching ${target.type} ${target.url}`);
+    const attach = await sendCdp("Target.attachToTarget", {
+        targetId: target.targetId,
+        flatten: true,
+    });
+    if (attach.error) {
+        throw new Error(JSON.stringify(attach.error));
+    }
+    const attachResult = (attach.result || {}) as { sessionId?: string };
+    if (!attachResult.sessionId) {
+        throw new Error("attachToTarget returned no sessionId");
+    }
+    h5Session = {
+        targetId: target.targetId,
+        sessionId: attachResult.sessionId,
+    };
+    logger.info(`[inspect] attached session=${h5Session.sessionId}`);
+};
+
+const openInspectFrontend = (inspectPort: number, logger: Logger) => {
+    const url = `devtools://devtools/bundled/inspector.html?ws=127.0.0.1:${inspectPort}`;
+    logger.info(`[inspect] DevTools: ${url}`);
+};
+
 const bufferToHexString = (buffer: ArrayBuffer) => {
     return Array.from(new Uint8Array(buffer))
         .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -65,12 +220,14 @@ const debugServer = (options: CliOptions, logger: Logger): WebSocketServer  => {
     };
 
     wss.on("connection", (ws: WebSocket) => {
+        miniappConnected = true;
         logger.info("[miniapp] miniapp client connected");
         ws.on("message", onMessage);
         ws.on("error", (err) => {
             logger.error("[miniapp] miniapp client err:", err);
         });
         ws.on("close", () => {
+            miniappConnected = wss.clients.size > 0;
             logger.info("[miniapp] miniapp client disconnected");
         });
     });
@@ -142,6 +299,67 @@ const proxyServer = (options: CliOptions, logger: Logger): WebSocketServer => {
                     client.send(message);
                 }
             });
+    });
+    return wss;
+};
+
+const setupCdpInspectBridge = () => {
+    debugMessageEmitter.on("cdpmessage", (message: string) => {
+        const msg = parseCdp(message);
+        if (!msg) {
+            return;
+        }
+        if (typeof msg.id === "number" && pendingCdp.has(msg.id)) {
+            pendingCdp.get(msg.id)!(msg);
+            pendingCdp.delete(msg.id);
+        }
+        if (
+            h5Session &&
+            inspectWss &&
+            msg.sessionId === h5Session.sessionId
+        ) {
+            const copy: Record<string, unknown> = { ...msg };
+            delete copy.sessionId;
+            const out = JSON.stringify(copy);
+            inspectWss.clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(out);
+                }
+            });
+        }
+    });
+};
+
+const ensureInspectServer = (
+    inspectPort: number,
+    logger: Logger,
+): WebSocketServer => {
+    if (inspectWss) {
+        return inspectWss;
+    }
+    const wss = new WebSocketServer({ port: inspectPort });
+    inspectWss = wss;
+    wss.on("connection", (ws: WebSocket) => {
+        logger.info("[inspect] H5 DevTools connected");
+        ws.on("message", (data) => {
+            let raw = data.toString();
+            try {
+                const msg = JSON.parse(raw) as Record<string, unknown>;
+                if (h5Session && !msg.sessionId) {
+                    msg.sessionId = h5Session.sessionId;
+                    raw = JSON.stringify(msg);
+                }
+            } catch {
+                // forward as-is
+            }
+            debugMessageEmitter.emit("proxymessage", raw);
+        });
+        ws.on("error", (err) => {
+            logger.error("[inspect] H5 DevTools err:", err);
+        });
+        ws.on("close", () => {
+            logger.info("[inspect] H5 DevTools disconnected");
+        });
     });
     return wss;
 };
@@ -267,7 +485,35 @@ const fridaServer = async (options: CliOptions, logger: Logger): Promise<frida.S
             return;
         }
 
-        logger.frida_debug("[frida client]", message.payload);
+        const payload = message.payload;
+        if (typeof payload === "string" && payload.includes("[patch] inspect")) {
+            logger.info("[frida]", payload);
+            if (payload.includes("inspect clicked")) {
+                const matched = payload.match(/url=(.*)$/);
+                const urls = matched && matched[1]
+                    ? matched[1]
+                          .split(" | ")
+                          .map((item) => item.trim())
+                          .filter(Boolean)
+                    : [];
+                void (async () => {
+                    try {
+                        await attachH5Target(urls, logger);
+                        const inspectPort = options.cdpPort + 1;
+                        ensureInspectServer(inspectPort, logger);
+                        openInspectFrontend(inspectPort, logger);
+                    } catch (error) {
+                        logger.error(`[inspect] ${error}`);
+                        logger.info(
+                            "[inspect] 先打开任意小程序保持调试通道，再打开内置浏览器页面，然后右键「检查」",
+                        );
+                    }
+                })();
+            }
+            return;
+        }
+
+        logger.frida_debug("[frida client]", payload);
     });
     await script.load();
     logger.info(
@@ -282,12 +528,14 @@ const main = async () => {
     const logger = create_logger(options);
     const debugWss = debugServer(options, logger);
     const proxyWss = proxyServer(options, logger);
+    setupCdpInspectBridge();
     const fridaSession = await fridaServer(options, logger);
 
     process.on("SIGINT", async () => {
         logger.info("[server] shutting down...");
         debugWss.close();
         proxyWss.close();
+        inspectWss?.close();
         await fridaSession.detach();
         process.exit(0);
     });
