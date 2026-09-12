@@ -206,7 +206,8 @@ const findPdataFunction = (module, address) => {
 
 const CMD_BACK = 0x80e8;
 const CMD_PRINT = 0x88bb;
-const CMD_INSPECT = 0xc3e2;
+const CMD_SELECT_ALL = 0xc3e2;
+const CMD_INSPECT = 0xc3f2;
 const CMD_DEV_TOOLS = 0x9c44;
 const CMD_DEV_TOOLS_CONSOLE = 0x9c45;
 const CMD_DEV_TOOLS_DEVICES = 0x9c47;
@@ -323,9 +324,6 @@ const patchInspectMenu = (module) => {
                 injecting = true;
                 try {
                     addItemFn(this.model, CMD_INSPECT, inspectStringId);
-                    send(
-                        `[patch] inspect item injected str=${inspectStringId}`,
-                    );
                 } catch (e) {
                     send(`[patch] inspect AddItem failed: ${e}`);
                 }

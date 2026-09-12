@@ -52,6 +52,7 @@ const parseCdp = (message: unknown): Record<string, unknown> | null => {
 const sendCdp = (
     method: string,
     params?: Record<string, unknown>,
+    sessionId?: string,
 ): Promise<Record<string, unknown>> =>
     new Promise((resolve, reject) => {
         if (!miniappConnected) {
@@ -67,10 +68,15 @@ const sendCdp = (
             clearTimeout(timer);
             resolve(msg);
         });
-        debugMessageEmitter.emit(
-            "proxymessage",
-            JSON.stringify({ id, method, params: params ?? {} }),
-        );
+        const payload: Record<string, unknown> = {
+            id,
+            method,
+            params: params ?? {},
+        };
+        if (sessionId) {
+            payload.sessionId = sessionId;
+        }
+        debugMessageEmitter.emit("proxymessage", JSON.stringify(payload));
     });
 
 const scoreH5Target = (target: CdpTargetInfo, urls: string[]): number => {
@@ -119,13 +125,128 @@ const scoreH5Target = (target: CdpTargetInfo, urls: string[]): number => {
     return score;
 };
 
+const normalizeUrl = (url: string) => url.split("#")[0].replace(/\/$/, "");
+
+const contextTokens = (urls: string[]): string[] => {
+    const tokens = new Set<string>();
+    for (const raw of urls) {
+        try {
+            const parsed = new URL(raw);
+            if (parsed.hostname) {
+                tokens.add(parsed.hostname);
+            }
+            if (parsed.pathname && parsed.pathname !== "/") {
+                tokens.add(parsed.pathname);
+            }
+            for (const segment of parsed.pathname.split("/")) {
+                if (segment && segment !== "index.html" && segment.length >= 6) {
+                    tokens.add(segment);
+                }
+            }
+            parsed.searchParams.forEach((value) => {
+                if (value && value.length >= 6) {
+                    tokens.add(value);
+                }
+            });
+        } catch {
+            if (raw.length >= 8) {
+                tokens.add(raw);
+            }
+        }
+    }
+    return [...tokens];
+};
+
+type PageIdentity = {
+    href: string;
+    url: string;
+    path: string;
+    vis: string;
+    title: string;
+    canonical: string;
+    og: string;
+    head: string;
+    textLen: number;
+};
+
+const identityHaystack = (identity: PageIdentity) =>
+    [
+        identity.href,
+        identity.url,
+        identity.path,
+        identity.canonical,
+        identity.og,
+        identity.title,
+        identity.head,
+    ].join("\n");
+
+const scoreIdentity = (
+    identity: PageIdentity,
+    tokens: string[],
+    contextUrls: string[],
+): number => {
+    const hay = identityHaystack(identity);
+    let hits = 0;
+    for (const token of tokens) {
+        if (token && hay.includes(token)) {
+            hits += 1;
+        }
+    }
+    let score = hits * 10;
+    if (identity.vis === "visible") {
+        score += 2;
+    }
+    if (identity.textLen > 200) {
+        score += 15;
+    } else if (identity.textLen < 40) {
+        score -= 15;
+    }
+    if (
+        /\/index\.html(\?|$)/i.test(identity.href) ||
+        /\/index\.html$/i.test(identity.path)
+    ) {
+        score -= 25;
+    }
+    for (const context of contextUrls) {
+        if (normalizeUrl(identity.href) === normalizeUrl(context)) {
+            score += 80;
+        }
+        if (
+            identity.canonical &&
+            normalizeUrl(identity.canonical) === normalizeUrl(context)
+        ) {
+            score += 80;
+        }
+        if (identity.og && normalizeUrl(identity.og) === normalizeUrl(context)) {
+            score += 80;
+        }
+    }
+    return score;
+};
+
 const matchH5Target = (
     targets: CdpTargetInfo[],
     urls: string[],
 ): CdpTargetInfo | null => {
+    const pages = targets.filter((target) => {
+        const type = (target.type || "page").toLowerCase();
+        return type === "page" || type === "webview";
+    });
+    const contextHttp = urls.filter(
+        (url) => url.startsWith("http://") || url.startsWith("https://"),
+    );
+    for (const wanted of contextHttp) {
+        const needle = normalizeUrl(wanted);
+        const exact = pages.find(
+            (target) => target.url && normalizeUrl(target.url) === needle,
+        );
+        if (exact) {
+            return exact;
+        }
+    }
     let best: CdpTargetInfo | null = null;
     let bestScore = 0;
-    for (const target of targets) {
+    for (const target of pages) {
         const score = scoreH5Target(target, urls);
         if (score > bestScore) {
             best = target;
@@ -133,6 +254,44 @@ const matchH5Target = (
         }
     }
     return best;
+};
+
+const readTargetInfo = async (targetId: string) => {
+    const attach = await sendCdp("Target.attachToTarget", {
+        targetId,
+        flatten: true,
+    });
+    if (attach.error) {
+        return { sessionId: null as string | null, identity: null as PageIdentity | null };
+    }
+    const sessionId = ((attach.result || {}) as { sessionId?: string }).sessionId;
+    if (!sessionId) {
+        return { sessionId: null, identity: null };
+    }
+    try {
+        const evaluated = await sendCdp(
+            "Runtime.evaluate",
+            {
+                expression:
+                    "(()=>{const q=(s,a)=>document.querySelector(s)?.getAttribute(a)||'';return{href:location.href||'',url:document.URL||'',path:location.pathname||'',vis:document.visibilityState||'',title:document.title||'',canonical:q('link[rel=\"canonical\"]','href'),og:q('meta[property=\"og:url\"]','content'),head:(document.head&&document.head.innerHTML||'').slice(0,4000),textLen:(document.body&&document.body.innerText||'').length};})()",
+                returnByValue: true,
+            },
+            sessionId,
+        );
+        const value = (
+            ((evaluated.result || {}) as { result?: { value?: PageIdentity } })
+                .result || {}
+        ).value;
+        if (!value || typeof value.href !== "string") {
+            return { sessionId, identity: null };
+        }
+        return { sessionId, identity: value };
+    } catch {
+        await sendCdp("Target.detachFromTarget", { sessionId }).catch(
+            () => undefined,
+        );
+        return { sessionId: null, identity: null };
+    }
 };
 
 const attachH5Target = async (urls: string[], logger: Logger) => {
@@ -147,6 +306,76 @@ const attachH5Target = async (urls: string[], logger: Logger) => {
             .map((target) => `${target.type || "?"}:${target.url || target.title || ""}`)
             .join(" | ")}`,
     );
+    const probeList = targets.filter((item) => {
+        const type = (item.type || "").toLowerCase();
+        const url = item.url || "";
+        return (
+            (type === "page" || type === "webview") &&
+            !!item.targetId &&
+            (url.startsWith("http://") || url.startsWith("https://")) &&
+            !url.includes("servicewechat.com") &&
+            !url.includes("wxa.wxs.qq.com/tmpl") &&
+            !url.includes("/preload-")
+        );
+    });
+    const contextHttp = urls.filter(
+        (url) => url.startsWith("http://") || url.startsWith("https://"),
+    );
+    const tokens = contextTokens(contextHttp);
+    let chosen: {
+        targetId: string;
+        sessionId: string;
+        href: string;
+        listed: string;
+        score: number;
+    } | null = null;
+    const detachSession = (sessionId: string) =>
+        sendCdp("Target.detachFromTarget", { sessionId }).catch(() => undefined);
+    for (const candidate of probeList) {
+        if (!candidate.targetId) {
+            continue;
+        }
+        const probed = await readTargetInfo(candidate.targetId);
+        if (!probed.sessionId) {
+            continue;
+        }
+        if (!probed.identity) {
+            await detachSession(probed.sessionId);
+            continue;
+        }
+        const score = scoreIdentity(probed.identity, tokens, contextHttp);
+        logger.info(
+            `[inspect] candidate ${probed.identity.href} score=${score} vis=${probed.identity.vis} text=${probed.identity.textLen}`,
+        );
+        if (!chosen || score > chosen.score) {
+            if (chosen?.sessionId) {
+                await detachSession(chosen.sessionId);
+            }
+            chosen = {
+                targetId: candidate.targetId,
+                sessionId: probed.sessionId,
+                href: probed.identity.href,
+                listed: candidate.url || "",
+                score,
+            };
+            continue;
+        }
+        await detachSession(probed.sessionId);
+    }
+    if (chosen && chosen.score > 0) {
+        logger.info(
+            `[inspect] matched ${chosen.href} (listed as ${chosen.listed}, score=${chosen.score})`,
+        );
+        h5Session = {
+            targetId: chosen.targetId,
+            sessionId: chosen.sessionId,
+        };
+        logger.info(`[inspect] attached session=${h5Session.sessionId}`);
+        return;
+    }
+    if (chosen?.sessionId) {
+        await detachSession(chosen.sessionId);
+    }
     const target = matchH5Target(targets, urls);
     if (!target || !target.targetId) {
         throw new Error(
