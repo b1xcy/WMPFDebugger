@@ -74,7 +74,7 @@
 
 如何使用自动偏移检测：添加 `--auto-detect` 命令行参数。当前仅支持 Windows x86_64，且尚未测试稳定性
 
-如何调试微信内置浏览器页面：参见 [EXTENSION.md](EXTENSION.md)。注意，目前该方法仅有基础调试功能
+如何调试微信内置浏览器页面：见下方「调试内置浏览器」。高级用法参见 [EXTENSION.md](EXTENSION.md)。
 
 如何检查版本：打开任务管理器，找到 WeChatAppEx 进程，右键，打开文件所在的位置，检查在 `RadiumWMPF` 和 `extracted` 之间的数字。
 
@@ -126,11 +126,43 @@ yarn
 npx ts-node src/index.ts
 ```
 
-> 注意: 在这个步骤之后，你需要先启动小程序（第三步），再打开开发者工具（第四步）。如果操作顺序反了你可能需要从重新第二步开始
+### 调试小程序
 
-**第 3 步** 打开任意你想调试的小程序
+**第 3 步** 打开任意你想调试的小程序。终端出现 `[miniapp] miniapp client connected` 即表示已连上。
 
-**第 4 步** 打开浏览器，访问 `devtools://devtools/bundled/inspector.html?ws=127.0.0.1:62000` 即可。你也可以将 CDP 端口（在例子中为 62000）修改到任意其他端口。相关代码定义在 `src/index.ts` 中
+**第 4 步** 打开 Chrome / Edge，访问：
+
+```
+devtools://devtools/bundled/inspector.html?ws=127.0.0.1:62000
+```
+
+必须先开小程序，再开 DevTools。顺序反了需要停掉本工具后从第 2 步重来。CDP 端口可在启动参数里修改。
+
+### 调试内置浏览器 / 公众号 H5
+
+内置浏览器没有独立调试通道，必须先打开一个小程序把会话打通，且调试过程中不要关闭该小程序。
+
+**第 3 步** 打开任意小程序，等到终端出现：
+
+```
+[miniapp] miniapp client connected
+[inspect] ready, right-click a page and choose 检查
+```
+
+**第 4 步** 在微信中打开要调试的网页（公众号文章、H5、内置浏览器页面均可）。
+
+**第 5 步** 在该页面右键，选择「检查」。
+
+**第 6 步** 终端会打印 DevTools 地址，例如：
+
+```
+[inspect] https://mp.weixin.qq.com/s/...
+[inspect] DevTools: devtools://devtools/bundled/inspector.html?ws=127.0.0.1:62001
+```
+
+把这条 `devtools://` 链接粘贴到 Chrome / Edge 打开即可。不要手动先开 62001，等点过「检查」再打开。
+
+小程序走 `62000`，内置浏览器走 `62001`。右键「检查」只会附加你刚右键的那一页。
 
 ## 截图
 

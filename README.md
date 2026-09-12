@@ -84,7 +84,7 @@ To upgrade to the latest WMPF (WeChat version > 4.x), download the latest WeChat
 
 To upgrade to the latest WMPF (WeChat version < 4.x), type in `:showcmdwnd` in the search bar (do not hit enter), then the command window should pop up. Type in `/plugin set_grayvalue=202&check_update_force` and hit enter, the latest WMPF plugin should be downloaded, if any updates are available. Restart the WeChat to apply plugin upgrade.
 
-To debug web pages of WeChat embedded browser, please refer to [EXTENSION.md](EXTENSION.md). Note that this feature has many limitations currently and is simply a basic workaround.
+To debug web pages of WeChat embedded browser, see **Debug the embedded browser** below. The Protocol Monitor workaround remains in [EXTENSION.md](EXTENSION.md).
 
 
 ### Linux (x86_64) Support
@@ -132,11 +132,43 @@ yarn
 npx ts-node src/index.ts
 ```
 
-> Note: After this step, you need to launch the miniapp BEFORE launching the devtools, otherwise you will probably need to kill the server and redo the steps 2 to 4 again.
+### Debug a miniapp
 
-**Step 3.** Launch any miniapp you would like to debug.
+**Step 3.** Launch the miniapp you want to debug. Wait until the terminal prints `[miniapp] miniapp client connected`.
 
-**Step 4.** Open your chromium-based browsers, navigate to `devtools://devtools/bundled/inspector.html?ws=127.0.0.1:62000` and profit. You can change the CDP port `CDP_PORT` (62000 in this example) in `src/index.ts` to any port you like.
+**Step 4.** Open Chrome / Edge and go to:
+
+```
+devtools://devtools/bundled/inspector.html?ws=127.0.0.1:62000
+```
+
+Launch the miniapp **before** opening DevTools. If you reverse the order, stop the tool and start again from step 2. The CDP port can be changed via launch arguments.
+
+### Debug the embedded browser
+
+The embedded browser has no debug session of its own. A miniapp must stay open to keep the CDP channel alive.
+
+**Step 3.** Launch any miniapp and wait for:
+
+```
+[miniapp] miniapp client connected
+[inspect] ready, right-click a page and choose 检查
+```
+
+**Step 4.** Open the web page in WeChat (official-account article, H5, or any built-in browser page).
+
+**Step 5.** Right-click the page and choose **检查**.
+
+**Step 6.** The terminal prints a DevTools URL, for example:
+
+```
+[inspect] https://mp.weixin.qq.com/s/...
+[inspect] DevTools: devtools://devtools/bundled/inspector.html?ws=127.0.0.1:62001
+```
+
+Paste that `devtools://` link into Chrome / Edge. Do not open port `62001` until after you have clicked **检查**.
+
+Miniapp DevTools uses port `62000`. Embedded-browser DevTools uses `62001`. Right-click **检查** attaches to the page you just clicked.
 
 ## Screenshots
 

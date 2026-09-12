@@ -128,6 +128,8 @@ sudo codesign --force --sign - \
 
 ### Q: 微信内置浏览器 / 公众号页面调试
 
-基础支持已有，请参见 [EXTENSION.md](EXTENSION.md)。注意目前仅有基础调试功能，不如小程序调试完善
+先启动本工具并打开任意小程序，等到 `[inspect] ready`。再打开网页，右键选择「检查」，把终端打印的 `devtools://...62001` 粘贴到 Chrome / Edge。
+
+小程序必须保持打开。不要先手动打开 62001。完整步骤见 [README.zh.md](README.zh.md)。Protocol Monitor 手动附加仍可参考 [EXTENSION.md](EXTENSION.md)。
 
 

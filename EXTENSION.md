@@ -1,6 +1,8 @@
 # WeChat Embedded Browser Page Debugging
 
-This is a simple workaround of utilizing existing debugging protocol to debug web pages of WeChat Embedded Browser.
+The usual way is: start this tool, open a miniapp, open the web page, right-click **检查**, then paste the printed `devtools://...62001` URL into Chrome / Edge. See [README.md](README.md).
+
+The steps below are the older Protocol Monitor workaround if you need to attach a tab by hand.
 
 ## Background
 

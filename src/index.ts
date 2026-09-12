@@ -79,326 +79,155 @@ const sendCdp = (
         debugMessageEmitter.emit("proxymessage", JSON.stringify(payload));
     });
 
-const scoreH5Target = (target: CdpTargetInfo, urls: string[]): number => {
-    const url = target.url || "";
-    const type = (target.type || "page").toLowerCase();
-    if (type !== "page" && type !== "webview") {
-        return -100;
+const STAMP_CONTEXTMENU = `(() => {
+    const w = window;
+    if (w.__wmpfInspectHooked) {
+        return true;
     }
-    if (!url) {
-        return -100;
-    }
-    const value = url.toLowerCase();
-    if (
-        value.includes("servicewechat.com") ||
-        value.includes("appindex") ||
-        value.startsWith("chrome://") ||
-        value.startsWith("devtools://") ||
-        value.startsWith("about:") ||
-        value.startsWith("weixin://") ||
-        value.includes("wxa.wxs.qq.com/tmpl") ||
-        value.includes("/preload-")
-    ) {
-        return -50;
-    }
-    if (value.includes("mp.weixin.qq.com/s/index.html")) {
-        return -10;
-    }
-    let score = 10;
-    if (value.startsWith("https://") || value.startsWith("http://")) {
-        score += 40;
-    }
-    if (/mp\.weixin\.qq\.com\/s\/[A-Za-z0-9_-]+/.test(url)) {
-        score += 50;
-    }
-    const normalize = (item: string) => item.split("#")[0].replace(/\/$/, "");
-    for (const wanted of urls) {
-        if (!wanted) {
-            continue;
-        }
-        if (normalize(url) === normalize(wanted)) {
-            score += 100;
-        } else if (url.includes(wanted) || wanted.includes(url.split("?")[0])) {
-            score += 60;
-        }
-    }
-    return score;
-};
+    w.__wmpfInspectHooked = true;
+    w.__wmpfLastContextMenu = 0;
+    const mark = () => {
+        w.__wmpfLastContextMenu = Date.now();
+    };
+    document.addEventListener("contextmenu", mark, true);
+    window.addEventListener("contextmenu", mark, true);
+    return true;
+})()`;
 
-const normalizeUrl = (url: string) => url.split("#")[0].replace(/\/$/, "");
+const READ_CONTEXTMENU = `({t: window.__wmpfLastContextMenu || 0, href: location.href || ""})`;
 
-const contextTokens = (urls: string[]): string[] => {
-    const tokens = new Set<string>();
-    for (const raw of urls) {
-        try {
-            const parsed = new URL(raw);
-            if (parsed.hostname) {
-                tokens.add(parsed.hostname);
-            }
-            if (parsed.pathname && parsed.pathname !== "/") {
-                tokens.add(parsed.pathname);
-            }
-            for (const segment of parsed.pathname.split("/")) {
-                if (segment && segment !== "index.html" && segment.length >= 6) {
-                    tokens.add(segment);
-                }
-            }
-            parsed.searchParams.forEach((value) => {
-                if (value && value.length >= 6) {
-                    tokens.add(value);
-                }
-            });
-        } catch {
-            if (raw.length >= 8) {
-                tokens.add(raw);
-            }
-        }
-    }
-    return [...tokens];
-};
+const stampedTargets = new Set<string>();
 
-type PageIdentity = {
-    href: string;
-    url: string;
-    path: string;
-    vis: string;
-    title: string;
-    canonical: string;
-    og: string;
-    head: string;
-    textLen: number;
-};
-
-const identityHaystack = (identity: PageIdentity) =>
-    [
-        identity.href,
-        identity.url,
-        identity.path,
-        identity.canonical,
-        identity.og,
-        identity.title,
-        identity.head,
-    ].join("\n");
-
-const scoreIdentity = (
-    identity: PageIdentity,
-    tokens: string[],
-    contextUrls: string[],
-): number => {
-    const hay = identityHaystack(identity);
-    let hits = 0;
-    for (const token of tokens) {
-        if (token && hay.includes(token)) {
-            hits += 1;
-        }
-    }
-    let score = hits * 10;
-    if (identity.vis === "visible") {
-        score += 2;
-    }
-    if (identity.textLen > 200) {
-        score += 15;
-    } else if (identity.textLen < 40) {
-        score -= 15;
-    }
-    if (
-        /\/index\.html(\?|$)/i.test(identity.href) ||
-        /\/index\.html$/i.test(identity.path)
-    ) {
-        score -= 25;
-    }
-    for (const context of contextUrls) {
-        if (normalizeUrl(identity.href) === normalizeUrl(context)) {
-            score += 80;
-        }
-        if (
-            identity.canonical &&
-            normalizeUrl(identity.canonical) === normalizeUrl(context)
-        ) {
-            score += 80;
-        }
-        if (identity.og && normalizeUrl(identity.og) === normalizeUrl(context)) {
-            score += 80;
-        }
-    }
-    return score;
-};
-
-const matchH5Target = (
-    targets: CdpTargetInfo[],
-    urls: string[],
-): CdpTargetInfo | null => {
-    const pages = targets.filter((target) => {
-        const type = (target.type || "page").toLowerCase();
-        return type === "page" || type === "webview";
-    });
-    const contextHttp = urls.filter(
-        (url) => url.startsWith("http://") || url.startsWith("https://"),
+const isInspectableTarget = (target: CdpTargetInfo) => {
+    const type = (target.type || "").toLowerCase();
+    return (
+        !!target.targetId &&
+        (type === "page" || type === "webview" || type === "iframe")
     );
-    for (const wanted of contextHttp) {
-        const needle = normalizeUrl(wanted);
-        const exact = pages.find(
-            (target) => target.url && normalizeUrl(target.url) === needle,
-        );
-        if (exact) {
-            return exact;
-        }
-    }
-    let best: CdpTargetInfo | null = null;
-    let bestScore = 0;
-    for (const target of pages) {
-        const score = scoreH5Target(target, urls);
-        if (score > bestScore) {
-            best = target;
-            bestScore = score;
-        }
-    }
-    return best;
 };
 
-const readTargetInfo = async (targetId: string) => {
-    const attach = await sendCdp("Target.attachToTarget", {
-        targetId,
-        flatten: true,
-    });
-    if (attach.error) {
-        return { sessionId: null as string | null, identity: null as PageIdentity | null };
-    }
-    const sessionId = ((attach.result || {}) as { sessionId?: string }).sessionId;
-    if (!sessionId) {
-        return { sessionId: null, identity: null };
+const stampPage = async (targetId: string) => {
+    if (stampedTargets.has(targetId) || !miniappConnected) {
+        return;
     }
     try {
-        const evaluated = await sendCdp(
-            "Runtime.evaluate",
-            {
-                expression:
-                    "(()=>{const q=(s,a)=>document.querySelector(s)?.getAttribute(a)||'';return{href:location.href||'',url:document.URL||'',path:location.pathname||'',vis:document.visibilityState||'',title:document.title||'',canonical:q('link[rel=\"canonical\"]','href'),og:q('meta[property=\"og:url\"]','content'),head:(document.head&&document.head.innerHTML||'').slice(0,4000),textLen:(document.body&&document.body.innerText||'').length};})()",
-                returnByValue: true,
-            },
-            sessionId,
-        );
-        const value = (
-            ((evaluated.result || {}) as { result?: { value?: PageIdentity } })
-                .result || {}
-        ).value;
-        if (!value || typeof value.href !== "string") {
-            return { sessionId, identity: null };
+        const attach = await sendCdp("Target.attachToTarget", {
+            targetId,
+            flatten: true,
+        });
+        if (attach.error) {
+            return;
         }
-        return { sessionId, identity: value };
+        const sessionId = ((attach.result || {}) as { sessionId?: string })
+            .sessionId;
+        if (!sessionId) {
+            return;
+        }
+        try {
+            await sendCdp(
+                "Runtime.evaluate",
+                { expression: STAMP_CONTEXTMENU, returnByValue: true },
+                sessionId,
+            );
+            stampedTargets.add(targetId);
+        } finally {
+            await sendCdp("Target.detachFromTarget", { sessionId }).catch(
+                () => undefined,
+            );
+        }
     } catch {
-        await sendCdp("Target.detachFromTarget", { sessionId }).catch(
-            () => undefined,
-        );
-        return { sessionId: null, identity: null };
+        // page may have gone away
     }
 };
 
-const attachH5Target = async (urls: string[], logger: Logger) => {
+const startInspectWatch = async (logger: Logger) => {
+    try {
+        await sendCdp("Target.setDiscoverTargets", { discover: true });
+        const response = await sendCdp("Target.getTargets");
+        const result = (response.result || {}) as { targetInfos?: CdpTargetInfo[] };
+        for (const target of result.targetInfos || []) {
+            if (isInspectableTarget(target) && target.targetId) {
+                await stampPage(target.targetId);
+            }
+        }
+        logger.info("[inspect] ready, right-click a page and choose 检查");
+    } catch (error) {
+        logger.error(`[inspect] failed to install contextmenu hook: ${error}`);
+    }
+};
+
+const attachH5Target = async (_urls: string[], logger: Logger) => {
     const response = await sendCdp("Target.getTargets");
     if (response.error) {
         throw new Error(JSON.stringify(response.error));
     }
     const result = (response.result || {}) as { targetInfos?: CdpTargetInfo[] };
-    const targets = result.targetInfos || [];
-    logger.info(
-        `[inspect] ${targets.length} targets: ${targets
-            .map((target) => `${target.type || "?"}:${target.url || target.title || ""}`)
-            .join(" | ")}`,
-    );
-    const probeList = targets.filter((item) => {
-        const type = (item.type || "").toLowerCase();
-        const url = item.url || "";
-        return (
-            (type === "page" || type === "webview") &&
-            !!item.targetId &&
-            (url.startsWith("http://") || url.startsWith("https://")) &&
-            !url.includes("servicewechat.com") &&
-            !url.includes("wxa.wxs.qq.com/tmpl") &&
-            !url.includes("/preload-")
-        );
-    });
-    const contextHttp = urls.filter(
-        (url) => url.startsWith("http://") || url.startsWith("https://"),
-    );
-    const tokens = contextTokens(contextHttp);
+    const targets = (result.targetInfos || []).filter(isInspectableTarget);
     let chosen: {
         targetId: string;
         sessionId: string;
         href: string;
-        listed: string;
-        score: number;
+        at: number;
     } | null = null;
     const detachSession = (sessionId: string) =>
         sendCdp("Target.detachFromTarget", { sessionId }).catch(() => undefined);
-    for (const candidate of probeList) {
+    for (const candidate of targets) {
         if (!candidate.targetId) {
             continue;
         }
-        const probed = await readTargetInfo(candidate.targetId);
-        if (!probed.sessionId) {
+        await stampPage(candidate.targetId);
+        const attach = await sendCdp("Target.attachToTarget", {
+            targetId: candidate.targetId,
+            flatten: true,
+        });
+        if (attach.error) {
             continue;
         }
-        if (!probed.identity) {
-            await detachSession(probed.sessionId);
+        const sessionId = ((attach.result || {}) as { sessionId?: string })
+            .sessionId;
+        if (!sessionId) {
             continue;
         }
-        const score = scoreIdentity(probed.identity, tokens, contextHttp);
-        logger.info(
-            `[inspect] candidate ${probed.identity.href} score=${score} vis=${probed.identity.vis} text=${probed.identity.textLen}`,
-        );
-        if (!chosen || score > chosen.score) {
-            if (chosen?.sessionId) {
-                await detachSession(chosen.sessionId);
+        try {
+            const evaluated = await sendCdp(
+                "Runtime.evaluate",
+                { expression: READ_CONTEXTMENU, returnByValue: true },
+                sessionId,
+            );
+            const value = (
+                ((evaluated.result || {}) as {
+                    result?: { value?: { t?: number; href?: string } };
+                }).result || {}
+            ).value;
+            const at = typeof value?.t === "number" ? value.t : 0;
+            const href = typeof value?.href === "string" ? value.href : candidate.url || "";
+            if (at > 0 && (!chosen || at > chosen.at)) {
+                if (chosen?.sessionId) {
+                    await detachSession(chosen.sessionId);
+                }
+                chosen = {
+                    targetId: candidate.targetId,
+                    sessionId,
+                    href,
+                    at,
+                };
+                continue;
             }
-            chosen = {
-                targetId: candidate.targetId,
-                sessionId: probed.sessionId,
-                href: probed.identity.href,
-                listed: candidate.url || "",
-                score,
-            };
-            continue;
+        } catch {
+            // try next page
         }
-        await detachSession(probed.sessionId);
+        await detachSession(sessionId);
     }
-    if (chosen && chosen.score > 0) {
-        logger.info(
-            `[inspect] matched ${chosen.href} (listed as ${chosen.listed}, score=${chosen.score})`,
-        );
-        h5Session = {
-            targetId: chosen.targetId,
-            sessionId: chosen.sessionId,
-        };
-        logger.info(`[inspect] attached session=${h5Session.sessionId}`);
-        return;
-    }
-    if (chosen?.sessionId) {
-        await detachSession(chosen.sessionId);
-    }
-    const target = matchH5Target(targets, urls);
-    if (!target || !target.targetId) {
+    if (!chosen) {
         throw new Error(
-            "no H5 page target found; keep the miniapp open and open the web page first",
+            "no page recorded the right-click; keep the miniapp open, right-click the page, then click 检查",
         );
     }
-    logger.info(`[inspect] attaching ${target.type} ${target.url}`);
-    const attach = await sendCdp("Target.attachToTarget", {
-        targetId: target.targetId,
-        flatten: true,
-    });
-    if (attach.error) {
-        throw new Error(JSON.stringify(attach.error));
-    }
-    const attachResult = (attach.result || {}) as { sessionId?: string };
-    if (!attachResult.sessionId) {
-        throw new Error("attachToTarget returned no sessionId");
-    }
+    logger.info(`[inspect] ${chosen.href}`);
     h5Session = {
-        targetId: target.targetId,
-        sessionId: attachResult.sessionId,
+        targetId: chosen.targetId,
+        sessionId: chosen.sessionId,
     };
-    logger.info(`[inspect] attached session=${h5Session.sessionId}`);
 };
 
 const openInspectFrontend = (inspectPort: number, logger: Logger) => {
@@ -451,12 +280,16 @@ const debugServer = (options: CliOptions, logger: Logger): WebSocketServer  => {
     wss.on("connection", (ws: WebSocket) => {
         miniappConnected = true;
         logger.info("[miniapp] miniapp client connected");
+        void startInspectWatch(logger);
         ws.on("message", onMessage);
         ws.on("error", (err) => {
             logger.error("[miniapp] miniapp client err:", err);
         });
         ws.on("close", () => {
             miniappConnected = wss.clients.size > 0;
+            if (!miniappConnected) {
+                stampedTargets.clear();
+            }
             logger.info("[miniapp] miniapp client disconnected");
         });
     });
@@ -542,6 +375,14 @@ const setupCdpInspectBridge = () => {
             pendingCdp.get(msg.id)!(msg);
             pendingCdp.delete(msg.id);
         }
+        if (msg.method === "Target.targetCreated") {
+            const info = (
+                (msg.params || {}) as { targetInfo?: CdpTargetInfo }
+            ).targetInfo;
+            if (info && isInspectableTarget(info) && info.targetId) {
+                void stampPage(info.targetId);
+            }
+        }
         if (
             h5Session &&
             inspectWss &&
@@ -569,7 +410,6 @@ const ensureInspectServer = (
     const wss = new WebSocketServer({ port: inspectPort });
     inspectWss = wss;
     wss.on("connection", (ws: WebSocket) => {
-        logger.info("[inspect] H5 DevTools connected");
         ws.on("message", (data) => {
             let raw = data.toString();
             try {
@@ -584,10 +424,7 @@ const ensureInspectServer = (
             debugMessageEmitter.emit("proxymessage", raw);
         });
         ws.on("error", (err) => {
-            logger.error("[inspect] H5 DevTools err:", err);
-        });
-        ws.on("close", () => {
-            logger.info("[inspect] H5 DevTools disconnected");
+            logger.error("[inspect] DevTools error:", err);
         });
     });
     return wss;
@@ -715,30 +552,17 @@ const fridaServer = async (options: CliOptions, logger: Logger): Promise<frida.S
         }
 
         const payload = message.payload;
-        if (typeof payload === "string" && payload.includes("[patch] inspect")) {
-            logger.info("[frida]", payload);
-            if (payload.includes("inspect clicked")) {
-                const matched = payload.match(/url=(.*)$/);
-                const urls = matched && matched[1]
-                    ? matched[1]
-                          .split(" | ")
-                          .map((item) => item.trim())
-                          .filter(Boolean)
-                    : [];
-                void (async () => {
-                    try {
-                        await attachH5Target(urls, logger);
-                        const inspectPort = options.cdpPort + 1;
-                        ensureInspectServer(inspectPort, logger);
-                        openInspectFrontend(inspectPort, logger);
-                    } catch (error) {
-                        logger.error(`[inspect] ${error}`);
-                        logger.info(
-                            "[inspect] 先打开任意小程序保持调试通道，再打开内置浏览器页面，然后右键「检查」",
-                        );
-                    }
-                })();
-            }
+        if (typeof payload === "string" && payload.includes("inspect clicked")) {
+            void (async () => {
+                try {
+                    await attachH5Target([], logger);
+                    const inspectPort = options.cdpPort + 1;
+                    ensureInspectServer(inspectPort, logger);
+                    openInspectFrontend(inspectPort, logger);
+                } catch (error) {
+                    logger.error(`[inspect] ${error}`);
+                }
+            })();
             return;
         }
 
