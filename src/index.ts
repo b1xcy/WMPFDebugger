@@ -34,6 +34,7 @@ let h5Session: { targetId: string; sessionId: string } | null = null;
 const pendingCdp = new Map<number, (msg: Record<string, unknown>) => void>();
 let cdpReqId = 900000;
 let inspectWss: WebSocketServer | null = null;
+let inspectWatchSeq = 0;
 
 const parseCdp = (message: unknown): Record<string, unknown> | null => {
     if (typeof message === "object" && message !== null) {
@@ -94,16 +95,56 @@ const STAMP_CONTEXTMENU = `(() => {
     return true;
 })()`;
 
-const READ_CONTEXTMENU = `({t: window.__wmpfLastContextMenu || 0, href: location.href || ""})`;
+const READ_CONTEXTMENU = `({t: window.__wmpfLastContextMenu || 0, href: location.href || "", focused: document.hasFocus(), visible: document.visibilityState === "visible"})`;
 
 const stampedTargets = new Set<string>();
 
+const isHttpPage = (href: string) => {
+    if (!href) {
+        return false;
+    }
+    try {
+        const url = new URL(href);
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+            return false;
+        }
+        const host = url.hostname;
+        return (
+            host !== "servicewechat.com" &&
+            !host.endsWith(".servicewechat.com") &&
+            host !== "usr"
+        );
+    } catch {
+        return false;
+    }
+};
+
 const isInspectableTarget = (target: CdpTargetInfo) => {
+    if (!target.targetId) {
+        return false;
+    }
     const type = (target.type || "").toLowerCase();
-    return (
-        !!target.targetId &&
-        (type === "page" || type === "webview" || type === "iframe")
-    );
+    if (
+        type === "page" ||
+        type === "webview" ||
+        type === "iframe" ||
+        type === "other"
+    ) {
+        return true;
+    }
+    return isHttpPage(target.url || "");
+};
+
+const pageInspectScore = (
+    at: number,
+    focused: boolean,
+    visible: boolean,
+    href: string,
+) => {
+    if (at > 0) {
+        return 1e15 + at;
+    }
+    return (isHttpPage(href) ? 8 : 0) + (focused ? 4 : 0) + (visible ? 2 : 0);
 };
 
 const stampPage = async (targetId: string) => {
@@ -140,18 +181,34 @@ const stampPage = async (targetId: string) => {
     }
 };
 
-const startInspectWatch = async (logger: Logger) => {
+const startInspectWatch = async (logger: Logger, seq: number) => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    if (seq !== inspectWatchSeq || !miniappConnected) {
+        return;
+    }
     try {
         await sendCdp("Target.setDiscoverTargets", { discover: true });
+        if (seq !== inspectWatchSeq) {
+            return;
+        }
         const response = await sendCdp("Target.getTargets");
         const result = (response.result || {}) as { targetInfos?: CdpTargetInfo[] };
         for (const target of result.targetInfos || []) {
+            if (seq !== inspectWatchSeq) {
+                return;
+            }
             if (isInspectableTarget(target) && target.targetId) {
                 await stampPage(target.targetId);
             }
         }
+        if (seq !== inspectWatchSeq) {
+            return;
+        }
         logger.info("[inspect] ready, right-click a page and choose 检查");
     } catch (error) {
+        if (seq !== inspectWatchSeq) {
+            return;
+        }
         logger.error(`[inspect] failed to install contextmenu hook: ${error}`);
     }
 };
@@ -167,7 +224,7 @@ const attachH5Target = async (_urls: string[], logger: Logger) => {
         targetId: string;
         sessionId: string;
         href: string;
-        at: number;
+        score: number;
     } | null = null;
     const detachSession = (sessionId: string) =>
         sendCdp("Target.detachFromTarget", { sessionId }).catch(() => undefined);
@@ -175,7 +232,6 @@ const attachH5Target = async (_urls: string[], logger: Logger) => {
         if (!candidate.targetId) {
             continue;
         }
-        await stampPage(candidate.targetId);
         const attach = await sendCdp("Target.attachToTarget", {
             targetId: candidate.targetId,
             flatten: true,
@@ -188,6 +244,10 @@ const attachH5Target = async (_urls: string[], logger: Logger) => {
         if (!sessionId) {
             continue;
         }
+        let at = 0;
+        let href = candidate.url || "";
+        let focused = false;
+        let visible = false;
         try {
             const evaluated = await sendCdp(
                 "Runtime.evaluate",
@@ -196,25 +256,37 @@ const attachH5Target = async (_urls: string[], logger: Logger) => {
             );
             const value = (
                 ((evaluated.result || {}) as {
-                    result?: { value?: { t?: number; href?: string } };
+                    result?: {
+                        value?: {
+                            t?: number;
+                            href?: string;
+                            focused?: boolean;
+                            visible?: boolean;
+                        };
+                    };
                 }).result || {}
             ).value;
-            const at = typeof value?.t === "number" ? value.t : 0;
-            const href = typeof value?.href === "string" ? value.href : candidate.url || "";
-            if (at > 0 && (!chosen || at > chosen.at)) {
-                if (chosen?.sessionId) {
-                    await detachSession(chosen.sessionId);
-                }
-                chosen = {
-                    targetId: candidate.targetId,
-                    sessionId,
-                    href,
-                    at,
-                };
-                continue;
+            at = typeof value?.t === "number" ? value.t : 0;
+            if (typeof value?.href === "string" && value.href) {
+                href = value.href;
             }
+            focused = value?.focused === true;
+            visible = value?.visible === true;
         } catch {
-            // try next page
+            // fall back to target URL
+        }
+        const score = pageInspectScore(at, focused, visible, href);
+        if (score >= 8 && (!chosen || score > chosen.score)) {
+            if (chosen?.sessionId) {
+                await detachSession(chosen.sessionId);
+            }
+            chosen = {
+                targetId: candidate.targetId,
+                sessionId,
+                href,
+                score,
+            };
+            continue;
         }
         await detachSession(sessionId);
     }
@@ -280,7 +352,8 @@ const debugServer = (options: CliOptions, logger: Logger): WebSocketServer  => {
     wss.on("connection", (ws: WebSocket) => {
         miniappConnected = true;
         logger.info("[miniapp] miniapp client connected");
-        void startInspectWatch(logger);
+        const seq = ++inspectWatchSeq;
+        void startInspectWatch(logger, seq);
         ws.on("message", onMessage);
         ws.on("error", (err) => {
             logger.error("[miniapp] miniapp client err:", err);
@@ -288,6 +361,7 @@ const debugServer = (options: CliOptions, logger: Logger): WebSocketServer  => {
         ws.on("close", () => {
             miniappConnected = wss.clients.size > 0;
             if (!miniappConnected) {
+                inspectWatchSeq++;
                 stampedTargets.clear();
             }
             logger.info("[miniapp] miniapp client disconnected");
@@ -555,6 +629,9 @@ const fridaServer = async (options: CliOptions, logger: Logger): Promise<frida.S
         if (typeof payload === "string" && payload.includes("inspect clicked")) {
             void (async () => {
                 try {
+                    if (!miniappConnected) {
+                        await new Promise((resolve) => setTimeout(resolve, 1000));
+                    }
                     await attachH5Target([], logger);
                     const inspectPort = options.cdpPort + 1;
                     ensureInspectServer(inspectPort, logger);
