@@ -2,10 +2,9 @@
 
 [English](README.md) | [中文](README.zh.md)
 
-Yet another WeChat Mini-Program Framework (WMPF) debugger.
+Yet another 某绿色软件 Mini-Program Framework (WMPF) debugger.
 
-This debugger (tweak) exploits Remote Debug feature provided by wechatdevtools and patches serval restrictions to force miniapp runtime to support full Chrome Debug Protocol, and thus can be directly applied to standard devtools shipped with chromium-based browsers.
-
+This debugger (tweak) exploits Remote Debug feature provided by 某绿色软件devtools and patches serval restrictions to force miniapp runtime to support full Chrome Debug Protocol, and thus can be directly applied to standard devtools shipped with chromium-based browsers.
 
 ## Support Status
 
@@ -13,108 +12,103 @@ This debugger (tweak) exploits Remote Debug feature provided by wechatdevtools a
 
 **Version histories:**
 
-* **auto-detect** (beta, credit @GhostMice)
-* 25558 (latest, credit @potacotion, @bingkxu)
-* 25510 (credit @potacotion)
-* 25459 (credit @1147529365)
-* 25364 (credit @lyratu)
-* 25297 (credit @Yinuo0602, @82539474)
-* 25268 (credit @RuntimeBroker)
+- **auto-detect** (beta, credit @GhostMice)
+- 25558 (latest, credit @potacotion, @bingkxu)
+- 25510 (credit @potacotion)
+- 25459 (credit @1147529365)
+- 25364 (credit @lyratu)
+- 25297 (credit @Yinuo0602, @82539474)
+- 25268 (credit @RuntimeBroker)
 
 <details>
 
 <summary>Older versions</summary>
 
-* 20089 (credit @lovejiuwu)
-* 20079 (credit @LiuYJia, @82539474)
-* 20005 (credit @LiuYJia)
-* 20001 (credit @B1397KB)
-* 19977 (credit @B1397KB, @yunm90872-ui, @chengzongcai)
-* 19921
-* 19899 (credit @mathmonkeyliu)
-* 19881 (credit @WIAIV)
-* 19871
-* 19841 (credit @AwangYes)
-* 19823 (credit @mathmonkeyliu)
-* 19769
-* 19749 (credit @xiaoriri, @Alfalfaaaa, @chengzongcai)
-* 19481 (credit @cosalone, @jiangjie)
-* 19459 (credit @snowflake-x)
-* 19339 (credit @hidacow)
-* 19201 (credit @hidacow)
-* 19027 (credit @XKaguya)
-* 18955 (credit @MapleLeaf2007)
-* 18891 (credit @1357310795)
-* 18787
-* 18151 (credit @1437649480, @zxjBigPower)
-* 18055 (credit @Howard20181)
-* 17127 (credit @Howard20181)
-* 17071 (credit @hyzaw)
-* 17037 (credit @linguo2625469)
-* 16965
-* 16815
-* 16771
-* 16467 (credit @51-xinyu)
-* 16389 (credit @liding58)
-* 16203 (credit @liding58)
-* 16133 (credit @liding58)
-* 14315 (credit @liding58)
-* 14199
-* 14161
-* 13909
-* 13871
-* 13655
-* 13639
-* 13487
-* 13341
-* 13331
-* 11633
-* 11581 (unstable, will connect but crash renderer, feel free to test)
+- 20089 (credit @lovejiuwu)
+- 20079 (credit @LiuYJia, @82539474)
+- 20005 (credit @LiuYJia)
+- 20001 (credit @B1397KB)
+- 19977 (credit @B1397KB, @yunm90872-ui, @chengzongcai)
+- 19921
+- 19899 (credit @mathmonkeyliu)
+- 19881 (credit @WIAIV)
+- 19871
+- 19841 (credit @AwangYes)
+- 19823 (credit @mathmonkeyliu)
+- 19769
+- 19749 (credit @xiaoriri, @Alfalfaaaa, @chengzongcai)
+- 19481 (credit @cosalone, @jiangjie)
+- 19459 (credit @snowflake-x)
+- 19339 (credit @hidacow)
+- 19201 (credit @hidacow)
+- 19027 (credit @XKaguya)
+- 18955 (credit @MapleLeaf2007)
+- 18891 (credit @1357310795)
+- 18787
+- 18151 (credit @1437649480, @zxjBigPower)
+- 18055 (credit @Howard20181)
+- 17127 (credit @Howard20181)
+- 17071 (credit @hyzaw)
+- 17037 (credit @linguo2625469)
+- 16965
+- 16815
+- 16771
+- 16467 (credit @51-xinyu)
+- 16389 (credit @liding58)
+- 16203 (credit @liding58)
+- 16133 (credit @liding58)
+- 14315 (credit @liding58)
+- 14199
+- 14161
+- 13909
+- 13871
+- 13655
+- 13639
+- 13487
+- 13341
+- 13331
+- 11633
+- 11581 (unstable, will connect but crash renderer, feel free to test)
 
 </details>
 
 To use auto-detect feature (currently beta), simply add `--auto-detect` in your launch arguments
 
-To check your installed version, navigate to Task Manager -> WeChatAppEx -> Right click -> Open file location -> Check the number between `RadiumWMPF` and `extracted`.
+To check your installed version, navigate to Task Manager -> 某绿色软件AppEx -> Right click -> Open file location -> Check the number between `RadiumWMPF` and `extracted`.
 
 To adapt to another version, please find the instructions in [ADAPTATION.md](ADAPTATION.md). Alternatively, you can submit an issue for new version adaption and I will try that if I have the binary. Note that only newer version adaption requests will be considered.
 
+To upgrade to the latest WMPF (某绿色软件 version > 4.x), download the latest 某绿色软件 installer on `pc.weixin.qq.com`. The latest WMPF bundle is packaged with the installer.
 
-To upgrade to the latest WMPF (WeChat version > 4.x), download the latest WeChat installer on `pc.weixin.qq.com`. The latest WMPF bundle is packaged with the installer.
+To upgrade to the latest WMPF (某绿色软件 version < 4.x), type in `:showcmdwnd` in the search bar (do not hit enter), then the command window should pop up. Type in `/plugin set_grayvalue=202&check_update_force` and hit enter, the latest WMPF plugin should be downloaded, if any updates are available. Restart the 某绿色软件 to apply plugin upgrade.
 
-To upgrade to the latest WMPF (WeChat version < 4.x), type in `:showcmdwnd` in the search bar (do not hit enter), then the command window should pop up. Type in `/plugin set_grayvalue=202&check_update_force` and hit enter, the latest WMPF plugin should be downloaded, if any updates are available. Restart the WeChat to apply plugin upgrade.
-
-To debug web pages of WeChat embedded browser, see **Debug the embedded browser** below. The Protocol Monitor workaround remains in [EXTENSION.md](EXTENSION.md).
-
+To debug web pages of 某绿色软件 embedded browser, see **Debug the embedded browser** below. The Protocol Monitor workaround remains in [EXTENSION.md](EXTENSION.md).
 
 ### Linux (x86_64) Support
 
 **Version histories:**
 
-* 14978 (latest, credit @Redbeanw44602)
-* 14910 (credit @CCLL-0x01)
-
+- 14978 (latest, credit @Redbeanw44602)
+- 14910 (credit @CCLL-0x01)
 
 ### macOS (arm64) Support
 
 **Version histories:**
 
-* 269136 (latest)
-
+- 269136 (latest)
 
 To check WMPF version on macOS:
 
 ```bash
 # Look for the number in the version string
-grep CFBundleVersion -A 1 "/Applications/WeChat.app/Contents/MacOS/WeChatAppEx.app/Contents/Info.plist"
+grep CFBundleVersion -A 1 "/Applications/某绿色软件.app/Contents/MacOS/某绿色软件AppEx.app/Contents/Info.plist"
 ```
-
 
 ## Prerequisites
 
-* node.js (requires at least LTS v22)
-    - yarn
-* chromium-based browsers (e.g., Chrome, Edge, etc.)
+- node.js (requires at least LTS v22)
+  - yarn
+- chromium-based browsers (e.g., Chrome, Edge, etc.)
 
 ## Quick Start
 
@@ -155,7 +149,7 @@ The embedded browser has no debug session of its own. A miniapp must stay open t
 [inspect] ready, right-click a page and choose 检查
 ```
 
-**Step 4.** Open the web page in WeChat (official-account article, H5, or any built-in browser page).
+**Step 4.** Open the web page in 某绿色软件 (official-account article, H5, or any built-in browser page).
 
 **Step 5.** Right-click the page and choose **检查**.
 
@@ -193,11 +187,10 @@ Please **do not remove existing attribution or contributor credits**. If your pr
 
 > **GPLv2 compliance is a license requirement. Attribution beyond the requirements of the GPLv2 is respectfully requested in recognition of the work of all contributors.**
 
-
 ## Disclaimer
 
-BECAUSE THE PROGRAM IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+BECAUSE THE PROGRAM IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW. EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS WITH YOU. SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
 
 IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY AND/OR REDISTRIBUTE THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
-The code in the `src/third-party` is extracted from `wechatdevtools` and fully copyrighted by Tencent Holdings Ltd.
+The code in the `src/third-party` is extracted from `某绿色软件devtools` and fully copyrighted by Tencent Holdings Ltd.

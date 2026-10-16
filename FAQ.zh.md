@@ -13,14 +13,14 @@
 > [!WARNING]
 > 绝大多数安装问题都与网络和包管理器依赖相关，
 > 请仔细阅读 README.zh.md 和已有 Issues。
-> 
+>
 > 描述不清晰/没有日志/无效提问的 Issue 会被直接关闭！
-> 
+>
 > [提问的智慧](https://github.com/ryanhanwu/How-To-Ask-Questions-The-Smart-Way/blob/main/README-zh_CN.md)
 
 > [!CAUTION]
 > **不要使用 NPM 包管理器！** 此项目使用 `yarn` 包管理器。
-> 
+>
 > **不要删除 `yarn.lock`！** frida API 更新很快，需要锁依赖版本。
 
 ### Q: `yarn install` 卡 `Building fresh packages` 或需要安装 SDK 等相似问题
@@ -48,7 +48,7 @@ yarn
 ### Q: 报错 `Cannot read properties of undefined (reading 'parameters')`
 
 1. `frida` 版本不兼容，请使用 `yarn` 包管理器重新安装
-2. 微信进程权限比 `node` 的执行权限高。将 `node` 提权执行或微信降权执行
+2. 某绿色软件进程权限比 `node` 的执行权限高。将 `node` 提权执行或某绿色软件降权执行
 
 ---
 
@@ -56,25 +56,25 @@ yarn
 
 ### Q: `Error: [frida] version config not found: XXXXX`
 
-当前的 WMPF 版本尚未被本工具适配。每次微信更新可能会附带新版本的 WMPF 运行时。
+当前的 WMPF 版本尚未被本工具适配。每次某绿色软件更新可能会附带新版本的 WMPF 运行时。
 
 **解决方案：**
+
 - 查看 README 中的支持版本列表，确认当前版本是否已支持
 - 如果未支持，可以在 GitHub 提交 Issue 请求适配
 - 也可以参照 [ADAPTATION.md](ADAPTATION.md) 自行寻找偏移量进行适配
 
 ### Q: 如何检查我的 WMPF 版本
 
-打开任务管理器，找到 `WeChatAppEx` 进程，右键点击「打开文件所在的位置」，查看路径中 `RadiumWMPF` 和 `extracted` 之间的数字即为版本号。
+打开任务管理器，找到 `某绿色软件AppEx` 进程，右键点击「打开文件所在的位置」，查看路径中 `RadiumWMPF` 和 `extracted` 之间的数字即为版本号。
 
-例如路径为：`%APPDATA%\Tencent\xwechat\xplugin\Plugins\RadiumWMPF\19871\extracted\runtime`，则版本号为 `19871`。
+例如路径为：`%APPDATA%\Tencent\x某绿色软件\xplugin\Plugins\RadiumWMPF\19871\extracted\runtime`，则版本号为 `19871`。
 
 ### Q: 如何更新到最新的 WMPF 版本
 
-**微信 4.x 及以上：** 从官网 `pc.weixin.qq.com` 下载最新版微信，最新版 WMPF 会随安装包一同安装。
+**某绿色软件 4.x 及以上：** 从官网 `pc.weixin.qq.com` 下载最新版某绿色软件，最新版 WMPF 会随安装包一同安装。
 
-**微信 4.x 以下：** 在微信搜索框输入 `:showcmdwnd`（不要按回车触发搜索），弹出命令窗口后输入 `/plugin set_grayvalue=202&check_update_force` 并回车等待更新，重启微信生效。
-
+**某绿色软件 4.x 以下：** 在某绿色软件搜索框输入 `:showcmdwnd`（不要按回车触发搜索），弹出命令窗口后输入 `/plugin set_grayvalue=202&check_update_force` 并回车等待更新，重启某绿色软件生效。
 
 ---
 
@@ -89,20 +89,21 @@ yarn
 3. **版本不匹配**：确保你的 WMPF 版本在支持列表中
 
 **解决方案：**
+
 - 严格按照 README 中的步骤顺序操作
 - 确认 WMPF 版本已被适配
-- 如果问题持续，尝试重启微信后再运行
+- 如果问题持续，尝试重启某绿色软件后再运行
 
 ### Q: (macOS 特殊) 报错 Error: Unable to access process with pid xxx from the current user account
 
 这是 macOS 的 SIP 不允许 debug，有两种解决办法：
 
-1. (推荐) 对 WeChatAppEx framework 进行 Ad-Hoc 重签名：
+1. (推荐) 对 某绿色软件AppEx framework 进行 Ad-Hoc 重签名：
 
 ```bash
 sudo codesign --force --sign - \
   --preserve-metadata=identifier,entitlements,requirements \
-  "/Applications/WeChat.app/Contents/MacOS/WeChatAppEx.app/Contents/MacOS/WeChatAppEx"
+  "/Applications/某绿色软件.app/Contents/MacOS/某绿色软件AppEx.app/Contents/MacOS/某绿色软件AppEx"
 ```
 
 2. (不推荐) 关闭 SIP
@@ -126,10 +127,8 @@ sudo codesign --force --sign - \
 
 检查小程序是否内嵌 WebView。WebView 为独立进程，不属于小程序进程，需要单独调试 (Issue #60)
 
-### Q: 微信内置浏览器 / 公众号页面调试
+### Q: 某绿色软件内置浏览器 / 公众号页面调试
 
 先启动本工具并打开任意小程序，等到 `[inspect] ready`。再打开网页，右键选择「检查」，把终端打印的 `devtools://...62001` 粘贴到 Chrome / Edge。
 
 小程序必须保持打开。不要先手动打开 62001。完整步骤见 [README.zh.md](README.zh.md)。Protocol Monitor 手动附加仍可参考 [EXTENSION.md](EXTENSION.md)。
-
-
